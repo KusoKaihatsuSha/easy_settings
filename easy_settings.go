@@ -306,19 +306,29 @@ func (o *Items) Save(flagdb ...bool) {
 
 // (*Items) SaveDb()
 // save Object to serialize value to DB
-func (o *Items) SaveDb() {
+func (o *Items) SaveDb(flagUniq ...bool) {
+	uniq := false
+	if len(flagUniq) > 0 {
+		if flagUniq[0] {
+			uniq = true
+		}
+	}
+
 	o.Db = NewDB("Data")
 	tx, _ := o.Db.Db.Begin(true)
 	defer tx.Rollback()
 	b, _ := tx.CreateBucketIfNotExists([]byte(o.Name))
 
 	for _, one := range o.Items {
-		//id, _ := b.NextSequence()
+		id, _ := b.NextSequence()
 		one.Parent = nil
 		json_, _ := json.MarshalIndent(one, "", "  ")
 		one.Parent = o
-		//b.Put([]byte(one.Name+strconv.FormatUint(id, 10)), json_)
-		b.Put([]byte(one.Name), json_)
+		if uniq {
+			b.Put([]byte(one.Name+strconv.FormatUint(id, 10)), json_)
+		} else {
+			b.Put([]byte(one.Name), json_)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -456,13 +466,13 @@ func (o *Items) Add(item *Item) *Items {
 }
 
 // (*Items) Filter(string) *Items
-// filtering information as original kind
+// filtering information as original kind // edited
 func (o *Items) Filter(key string) *Items {
 	return_ := new(Items)
 	*return_ = *o
 	return_.Items = nil
 	for _, v := range o.Items {
-		if v.Name == key {
+		if strings.HasPrefix(v.Name, key) {
 			return_.Items = append(return_.Items, v)
 		}
 	}
@@ -471,7 +481,7 @@ func (o *Items) Filter(key string) *Items {
 	}
 	for _, v := range o.Items {
 		for _, vv := range v.Values {
-			if vv.Value == key || vv.Key == key {
+			if strings.HasPrefix(vv.Value, key) || strings.HasPrefix(vv.Key, key) {
 				return_.Items = append(return_.Items, v)
 			}
 		}
