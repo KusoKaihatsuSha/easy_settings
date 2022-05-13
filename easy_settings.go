@@ -75,9 +75,6 @@ func NewDB(name string) *DataBase {
 // (*DataBase) Open(string) *DataBase
 // open DB file
 func (o *DataBase) Open(name string) *DataBase {
-	//<-o.Lock
-
-	//fmt.Println(Writable())
 	var err error
 	o.Db, err = bolt.Open(name+".db", 0600, &bolt.Options{Timeout: 10 * time.Second})
 	if err != nil {
@@ -90,7 +87,6 @@ func (o *DataBase) Open(name string) *DataBase {
 // close DB file
 func (o *DataBase) Close() {
 	o.Db.Close()
-	//o.Lock <- true
 }
 
 // (*DataBase) Bucket(string) *DataBaseBucket
@@ -137,7 +133,6 @@ func (obj *DataBase) Delete(name string) {
 // Add new elements for saving in db as settings
 func (obj *DataBaseBucket) Add(key string, value string, uniq ...bool) string {
 	uid := ""
-
 	if len(uniq) > 0 {
 		if uniq[0] {
 			gen := new(Patern)
@@ -145,19 +140,14 @@ func (obj *DataBaseBucket) Add(key string, value string, uniq ...bool) string {
 			uid = gen.Generate(24)
 		}
 	}
-
 	tx, _ := obj.Parent.Begin(true)
 	defer tx.Rollback()
-
 	b := tx.Bucket([]byte(obj.Name))
-
 	id, _ := b.NextSequence()
 	obj.Err = b.Put([]byte(key+uid+strconv.FormatUint(id, 10)), []byte(value))
-
 	if err := tx.Commit(); err != nil {
 		log.Fatal(err)
 	}
-
 	return key + uid
 }
 
@@ -168,7 +158,6 @@ func hasPart(text []byte, part []byte) bool {
 // (*DataBaseBucket) Get(string, ...bool) map[string]string
 // get elements from db
 func (obj *DataBaseBucket) Get(key string, prefix ...bool) map[string]string {
-
 	prfx := false
 	if len(prefix) > 0 {
 		if prefix[0] {
@@ -209,21 +198,6 @@ func (obj *DataBase) PrintAll(name string) map[string]([]byte) {
 	return m
 }
 
-// (*DataBaseBucket) PrintAllPrefix(string) map[string]string
-// Print all elements in bucket by prefix in key
-// func (obj *DataBaseBucket) PrintAllPrefix(prx string) map[string]string {
-// 	m := make(map[string]string)
-// 	obj.Parent.View(func(tx *bolt.Tx) error {
-// 		b := tx.Bucket([]byte(obj.Name)).Cursor()
-// 		prefix := []byte(prx)
-// 		for k, v := b.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = b.Next() {
-// 			m[string(k)] = string(v)
-// 		}
-// 		return nil
-// 	})
-// 	return m
-// }
-
 func (obj *DataBaseBucket) PrintAllPrefix(prx string) map[string]([]byte) {
 	m := make(map[string]([]byte))
 	obj.Parent.View(func(tx *bolt.Tx) error {
@@ -236,21 +210,6 @@ func (obj *DataBaseBucket) PrintAllPrefix(prx string) map[string]([]byte) {
 	})
 	return m
 }
-
-// (*DataBaseBucket) Print(string) string
-// Print elements by key
-// func (obj *DataBaseBucket) Print(key string) string {
-// 	value := ""
-// 	obj.Parent.View(func(tx *bolt.Tx) error {
-// 		b := tx.Bucket([]byte(obj.Name))
-// 		v := b.Get([]byte(key))
-// 		if v != nil {
-// 			value = string(v)
-// 		}
-// 		return nil
-// 	})
-// 	return value
-// }
 
 func (obj *DataBaseBucket) Print(key string) []byte {
 	value := []byte{}
@@ -309,12 +268,8 @@ func (o *Item) _init() *Item {
 // NewPack(string) *Item
 // constructor for settings values
 func NewPack(elName string) *Items {
-	//o := new(Items)
-	//return o._init(elName)
 	return nil
 }
-
-//------------
 
 // Pack
 //
@@ -579,67 +534,6 @@ func (o *Items) Save(flagUniq ...bool) {
 	o.Db.Close()
 }
 
-//-----------
-// func (o *Items) _init(elName string) *Items {
-// 	patGen := new(Patern)
-// 	patGen.Generate = Generate
-// 	o.ID = patGen.Generate(16)
-// 	o.Db = NewDB("Data")
-// 	//o.Db.Close()
-// 	o.Name = elName
-// 	o.LoadDb()
-// 	return o
-// }
-
-// (*Items) Save(...bool)
-// save Object to serialize value
-// func (o *Items) Save(flagdb ...bool) {
-// 	prfx := false
-// 	if len(flagdb) > 0 {
-// 		if flagdb[0] {
-// 			prfx = true
-// 		}
-// 	}
-// 	if prfx {
-// 		o.SaveDb()
-// 	}
-
-// 	o.SaveJson()
-// }
-
-// (*Items) SaveDb()
-// save Object to serialize value to DB
-// func (o *Items) SaveDb(flagUniq ...bool) {
-// 	uniq := false
-// 	if len(flagUniq) > 0 {
-// 		if flagUniq[0] {
-// 			uniq = true
-// 		}
-// 	}
-
-// 	o.Db = NewDB("Data")
-// 	tx, _ := o.Db.Db.Begin(true)
-// 	defer tx.Rollback()
-// 	b, _ := tx.CreateBucketIfNotExists([]byte(o.Name))
-
-// 	for _, one := range o.Items {
-// 		id, _ := b.NextSequence()
-// 		one.Parent = nil
-// 		json_, _ := json.MarshalIndent(one, "", "  ")
-// 		one.Parent = o
-// 		if uniq {
-// 			b.Put([]byte(one.Name+strconv.FormatUint(id, 10)), json_)
-// 		} else {
-// 			b.Put([]byte(one.Name), json_)
-// 		}
-// 	}
-
-// 	if err := tx.Commit(); err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	o.Db.Close()
-// }
-
 // (*Items) SaveJson()
 // save Object to serialize value to Json
 func (o *Items) SaveJson() {
@@ -672,18 +566,6 @@ func (o *Items) Json() string {
 	return string(all)
 }
 
-// (*Items) LoadDb()
-// Load Object from serialize value in DB
-// func (o *Items) LoadDb() {
-// 	o.Db = NewDB("Data")
-// 	for _, v := range o.Db.PrintAll(o.Name) {
-// 		n := new(Item)
-// 		json.Unmarshal(v, &n)
-// 		o.Add(n)
-// 	}
-// 	o.Db.Close()
-// }
-
 // (*Items) UnmarshalJSON([]byte) error
 // wrapper around unmarshaling data
 func (o *Items) UnmarshalJSON(data []byte) error {
@@ -702,24 +584,6 @@ func (o *Items) LoadJson() {
 	b, _ := ioutil.ReadFile("Data" + ".json")
 	json.Unmarshal(b, &o)
 }
-
-// (*Items) Delete()
-// delete items
-// func (o *Items) Delete() {
-// 	o.Db = NewDB("Data")
-// 	o.Db.Delete(o.Name)
-// 	o.Db.Close()
-// }
-
-// (*Item) Add(string, string) *Item
-// add elements of data
-// func (o *Item) Add(key string, val string) *Item {
-// 	oo := new(Values)
-// 	oo.Key = key
-// 	oo.Value = val
-// 	o.Values = append(o.Values, oo)
-// 	return o
-// }
 
 // (*Item) GetValuesJson() string
 // json marshaling data
@@ -762,27 +626,6 @@ func (o *Item) New(type_ string) *Item {
 	//oo.Add("name", type_)
 	return oo
 }
-
-// (*Items) Add(*Item) *Item
-// add elements of data to Pack
-// func (o *Items) Add(item *Item) *Items {
-// 	flag_ := true
-// 	for _, v := range o.Items {
-// 		if v.Name == item.Name {
-// 			tmp1, _ := json.Marshal(item.Values)
-// 			tmp2, _ := json.Marshal(v.Values)
-// 			if string(tmp1) == string(tmp2) {
-// 				flag_ = false
-// 			}
-// 		}
-// 	}
-// 	if flag_ {
-// 		item.Parent = o
-// 		o.Items = append(o.Items, item)
-// 	}
-
-// 	return o
-// }
 
 // (*Items) Filter(string) *Items
 // filtering information as original kind // edited
