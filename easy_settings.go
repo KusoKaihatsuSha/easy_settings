@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -43,6 +44,7 @@ type Items struct {
 	Name  string
 	Items []*Item
 	Db    *DataBase
+	Uniq  bool
 }
 
 // DataBase working with Bolt DB
@@ -73,14 +75,22 @@ func NewDB(name string) *DataBase {
 // (*DataBase) Open(string) *DataBase
 // open DB file
 func (o *DataBase) Open(name string) *DataBase {
-	o.Db, _ = bolt.Open(name+".db", 0600, &bolt.Options{Timeout: 1 * time.Second})
+	//<-o.Lock
+
+	//fmt.Println(Writable())
+	var err error
+	o.Db, err = bolt.Open(name+".db", 0600, &bolt.Options{Timeout: 10 * time.Second})
+	if err != nil {
+		return o.Open(name)
+	}
 	return o
 }
 
 // (*DataBase) Close()
 // close DB file
-func (obj *DataBase) Close() {
-	obj.Db.Close()
+func (o *DataBase) Close() {
+	o.Db.Close()
+	//o.Lock <- true
 }
 
 // (*DataBase) Bucket(string) *DataBaseBucket
@@ -201,13 +211,26 @@ func (obj *DataBase) PrintAll(name string) map[string]([]byte) {
 
 // (*DataBaseBucket) PrintAllPrefix(string) map[string]string
 // Print all elements in bucket by prefix in key
-func (obj *DataBaseBucket) PrintAllPrefix(prx string) map[string]string {
-	m := make(map[string]string)
+// func (obj *DataBaseBucket) PrintAllPrefix(prx string) map[string]string {
+// 	m := make(map[string]string)
+// 	obj.Parent.View(func(tx *bolt.Tx) error {
+// 		b := tx.Bucket([]byte(obj.Name)).Cursor()
+// 		prefix := []byte(prx)
+// 		for k, v := b.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = b.Next() {
+// 			m[string(k)] = string(v)
+// 		}
+// 		return nil
+// 	})
+// 	return m
+// }
+
+func (obj *DataBaseBucket) PrintAllPrefix(prx string) map[string]([]byte) {
+	m := make(map[string]([]byte))
 	obj.Parent.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(obj.Name)).Cursor()
 		prefix := []byte(prx)
 		for k, v := b.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = b.Next() {
-			m[string(k)] = string(v)
+			m[string(k)] = v
 		}
 		return nil
 	})
@@ -216,13 +239,26 @@ func (obj *DataBaseBucket) PrintAllPrefix(prx string) map[string]string {
 
 // (*DataBaseBucket) Print(string) string
 // Print elements by key
-func (obj *DataBaseBucket) Print(key string) string {
-	value := ""
+// func (obj *DataBaseBucket) Print(key string) string {
+// 	value := ""
+// 	obj.Parent.View(func(tx *bolt.Tx) error {
+// 		b := tx.Bucket([]byte(obj.Name))
+// 		v := b.Get([]byte(key))
+// 		if v != nil {
+// 			value = string(v)
+// 		}
+// 		return nil
+// 	})
+// 	return value
+// }
+
+func (obj *DataBaseBucket) Print(key string) []byte {
+	value := []byte{}
 	obj.Parent.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(obj.Name))
 		v := b.Get([]byte(key))
 		if v != nil {
-			value = string(v)
+			value = v
 		}
 		return nil
 	})
@@ -273,52 +309,257 @@ func (o *Item) _init() *Item {
 // NewPack(string) *Item
 // constructor for settings values
 func NewPack(elName string) *Items {
-	o := new(Items)
-	return o._init(elName)
+	//o := new(Items)
+	//return o._init(elName)
+	return nil
 }
 
-func (o *Items) _init(elName string) *Items {
+//------------
+
+// Pack
+//
+func Pack(name string) *Items {
+	o := new(Items)
+	return o.init(name)
+}
+
+// init
+//
+func (o *Items) init(name string) *Items {
 	patGen := new(Patern)
 	patGen.Generate = Generate
 	o.ID = patGen.Generate(16)
-	o.Db = NewDB("Data")
+	o.Db = NewDB("data")
 	o.Db.Close()
-	o.Name = elName
-	o.LoadDb()
+	o.Name = name
 	return o
 }
 
-// (*Items) Save(...bool)
-// save Object to serialize value
-func (o *Items) Save(flagdb ...bool) {
+// Exist
+//
+func (o *Items) Exist(element *Item) *Item {
+	temp := Item{}
+	o.Db = NewDB("Data")
+	json.Unmarshal(o.Db.Bucket(o.Name).Print(element.Name), &temp)
+	o.Db.Close()
+	for _, v := range o.Items {
+		if v.Name == element.Name {
+			if temp.Name != "" {
+				*v = temp
+			}
+			for _, vv := range element.Values {
+				v.Add(vv.Key, vv.Value)
+			}
+			return v
+		}
+	}
+	if temp.Name == element.Name {
+		if temp.Name != "" {
+			for _, vv := range element.Values {
+				temp.Add(vv.Key, vv.Value)
+			}
+			o.Items = append(o.Items, &temp)
+			return &temp
+		}
+	}
+	o.Items = append(o.Items, element)
+	return element
+}
+
+// Test
+//
+func (o *Items) Test() {
+	for _, v := range o.Items {
+		for _, vv := range v.Values {
+			fmt.Println(o.Name, v.Name, vv.Key, vv.Value)
+		}
+	}
+}
+
+// End
+//
+func (o *Items) End() {
+	o.Db.Close()
+}
+
+// Item
+//
+func (o *Items) Item(name interface{}, flagFindAsPrefix ...bool) *Items {
 	prfx := false
-	if len(flagdb) > 0 {
-		if flagdb[0] {
+	if len(flagFindAsPrefix) > 0 {
+		if flagFindAsPrefix[0] {
 			prfx = true
 		}
 	}
-	if prfx {
-		o.SaveDb()
+	tmp := New("empty")
+	save := false
+	switch val := name.(type) {
+	case *Item:
+		tmp = val
+		save = true
+	case string:
+		tmp.Name = val
+	case int:
+		tmp.Name = strconv.Itoa(val)
+	case int64:
+		tmp.Name = strconv.Itoa(int(val))
+	default:
+		return o
 	}
-
-	o.SaveJson()
-}
-
-// (*Items) SaveDb()
-// save Object to serialize value to DB
-func (o *Items) SaveDb(flagUniq ...bool) {
-	uniq := false
-	if len(flagUniq) > 0 {
-		if flagUniq[0] {
-			uniq = true
+	if !prfx {
+		o.Exist(tmp)
+	} else {
+		o.Db = NewDB("Data")
+		els := o.Db.Bucket(o.Name).PrintAllPrefix(tmp.Name)
+		defer o.Db.Close()
+		var itm []*Item
+		for _, v := range els {
+			n := new(Item)
+			json.Unmarshal(v, n)
+			itm = append(itm, n)
+		}
+		o.Db.Close()
+		for _, v := range itm {
+			o.Item(v, false)
 		}
 	}
+	if save {
+		o.Save()
+	}
+	return o
+}
+
+func (o *Items) Load() {
+	o.Db = NewDB("Data")
+	for _, v := range o.Items {
+		json.Unmarshal(o.Db.Bucket(o.Name).Print(v.Name), &v)
+	}
+	o.Db.Close()
+}
+
+func (o *Items) Add(key string, val string) *Items {
+	oo := new(Values)
+	oo.Key = key
+	oo.Value = val
+	for _, v := range o.Items {
+		find := false
+		for _, vv := range v.Values {
+			if vv.Key == oo.Key {
+				vv.Value = oo.Value
+				find = true
+			}
+		}
+		if !find {
+			v.Values = append(v.Values, oo)
+		}
+	}
+	o.Save()
+	return o
+}
+
+func (o *Items) Get(key string, flagFindAsPrefix ...bool) []string {
+	prfx := false
+	if len(flagFindAsPrefix) > 0 {
+		if flagFindAsPrefix[0] {
+			prfx = true
+		}
+	}
+	var ret []string
+	for _, v := range o.Items {
+		for _, vv := range v.Values {
+			if !prfx {
+				if vv.Key == key {
+					ret = append(ret, vv.Value)
+				}
+			} else {
+				if strings.HasPrefix(vv.Key, key) {
+					ret = append(ret, vv.Value)
+				}
+			}
+		}
+	}
+	return ret
+}
+
+func (o *Items) Clear(key string, flagFindAsPrefix ...bool) {
+	prfx := false
+	if len(flagFindAsPrefix) > 0 {
+		if flagFindAsPrefix[0] {
+			prfx = true
+		}
+	}
+	newValues := []*Values{}
+	for _, v := range o.Items {
+		for _, vv := range v.Values {
+			if !prfx {
+				if vv.Key != key {
+					newValues = append(newValues, vv)
+				}
+			} else {
+				if !strings.HasPrefix(vv.Key, key) {
+					newValues = append(newValues, vv)
+				}
+			}
+		}
+		v.Values = newValues
+	}
+	o.Save()
+}
+
+func (o *Item) Add(key string, val string) *Item {
+	if o == nil {
+		return nil
+	}
+	oo := new(Values)
+	oo.Key = key
+	oo.Value = val
+	find := false
+	for _, vv := range o.Values {
+		if vv.Key == oo.Key {
+			vv.Value = oo.Value
+			find = true
+		}
+	}
+	if !find {
+		o.Values = append(o.Values, oo)
+	}
+	return o
+}
+
+func (o *Items) Delete() {
+	var wg sync.WaitGroup
+	wg.Add(1)
 
 	o.Db = NewDB("Data")
 	tx, _ := o.Db.Db.Begin(true)
 	defer tx.Rollback()
 	b, _ := tx.CreateBucketIfNotExists([]byte(o.Name))
 
+	for _, one := range o.Items {
+		b.Delete([]byte(one.Name))
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Fatal(err)
+	}
+	wg.Done()
+	wg.Wait()
+	o.Db.Close()
+}
+
+func (o *Items) Save(flagUniq ...bool) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	uniq := false
+	if len(flagUniq) > 0 {
+		if flagUniq[0] {
+			uniq = true
+		}
+	}
+	o.Db = NewDB("Data")
+	tx, _ := o.Db.Db.Begin(true)
+	defer tx.Rollback()
+	b, _ := tx.CreateBucketIfNotExists([]byte(o.Name))
 	for _, one := range o.Items {
 		id, _ := b.NextSequence()
 		one.Parent = nil
@@ -330,12 +571,74 @@ func (o *Items) SaveDb(flagUniq ...bool) {
 			b.Put([]byte(one.Name), json_)
 		}
 	}
-
 	if err := tx.Commit(); err != nil {
 		log.Fatal(err)
 	}
+	wg.Done()
+	wg.Wait()
 	o.Db.Close()
 }
+
+//-----------
+// func (o *Items) _init(elName string) *Items {
+// 	patGen := new(Patern)
+// 	patGen.Generate = Generate
+// 	o.ID = patGen.Generate(16)
+// 	o.Db = NewDB("Data")
+// 	//o.Db.Close()
+// 	o.Name = elName
+// 	o.LoadDb()
+// 	return o
+// }
+
+// (*Items) Save(...bool)
+// save Object to serialize value
+// func (o *Items) Save(flagdb ...bool) {
+// 	prfx := false
+// 	if len(flagdb) > 0 {
+// 		if flagdb[0] {
+// 			prfx = true
+// 		}
+// 	}
+// 	if prfx {
+// 		o.SaveDb()
+// 	}
+
+// 	o.SaveJson()
+// }
+
+// (*Items) SaveDb()
+// save Object to serialize value to DB
+// func (o *Items) SaveDb(flagUniq ...bool) {
+// 	uniq := false
+// 	if len(flagUniq) > 0 {
+// 		if flagUniq[0] {
+// 			uniq = true
+// 		}
+// 	}
+
+// 	o.Db = NewDB("Data")
+// 	tx, _ := o.Db.Db.Begin(true)
+// 	defer tx.Rollback()
+// 	b, _ := tx.CreateBucketIfNotExists([]byte(o.Name))
+
+// 	for _, one := range o.Items {
+// 		id, _ := b.NextSequence()
+// 		one.Parent = nil
+// 		json_, _ := json.MarshalIndent(one, "", "  ")
+// 		one.Parent = o
+// 		if uniq {
+// 			b.Put([]byte(one.Name+strconv.FormatUint(id, 10)), json_)
+// 		} else {
+// 			b.Put([]byte(one.Name), json_)
+// 		}
+// 	}
+
+// 	if err := tx.Commit(); err != nil {
+// 		log.Fatal(err)
+// 	}
+// 	o.Db.Close()
+// }
 
 // (*Items) SaveJson()
 // save Object to serialize value to Json
@@ -350,20 +653,36 @@ func (o *Items) SaveJson() {
 	for _, one := range o.Items {
 		one.Parent = o
 	}
-	ioutil.WriteFile("Data_"+o.Name+".json", all, 0775)
+	ioutil.WriteFile("data_"+o.Name+".json", all, 0775)
+}
+
+// (*Items) SaveJson()
+// save Object to serialize value to Json
+func (o *Items) Json() string {
+	for _, one := range o.Items {
+		one.Parent = nil
+	}
+	Dbtmp := o.Db
+	o.Db = nil
+	all, _ := json.MarshalIndent(o, "", "  ")
+	o.Db = Dbtmp
+	for _, one := range o.Items {
+		one.Parent = o
+	}
+	return string(all)
 }
 
 // (*Items) LoadDb()
 // Load Object from serialize value in DB
-func (o *Items) LoadDb() {
-	o.Db = NewDB("Data")
-	for _, v := range o.Db.PrintAll(o.Name) {
-		n := new(Item)
-		json.Unmarshal(v, &n)
-		o.Add(n)
-	}
-	o.Db.Close()
-}
+// func (o *Items) LoadDb() {
+// 	o.Db = NewDB("Data")
+// 	for _, v := range o.Db.PrintAll(o.Name) {
+// 		n := new(Item)
+// 		json.Unmarshal(v, &n)
+// 		o.Add(n)
+// 	}
+// 	o.Db.Close()
+// }
 
 // (*Items) UnmarshalJSON([]byte) error
 // wrapper around unmarshaling data
@@ -386,21 +705,21 @@ func (o *Items) LoadJson() {
 
 // (*Items) Delete()
 // delete items
-func (o *Items) Delete() {
-	o.Db = NewDB("Data")
-	o.Db.Delete(o.Name)
-	o.Db.Close()
-}
+// func (o *Items) Delete() {
+// 	o.Db = NewDB("Data")
+// 	o.Db.Delete(o.Name)
+// 	o.Db.Close()
+// }
 
 // (*Item) Add(string, string) *Item
 // add elements of data
-func (o *Item) Add(key string, val string) *Item {
-	oo := new(Values)
-	oo.Key = key
-	oo.Value = val
-	o.Values = append(o.Values, oo)
-	return o
-}
+// func (o *Item) Add(key string, val string) *Item {
+// 	oo := new(Values)
+// 	oo.Key = key
+// 	oo.Value = val
+// 	o.Values = append(o.Values, oo)
+// 	return o
+// }
 
 // (*Item) GetValuesJson() string
 // json marshaling data
@@ -429,7 +748,7 @@ func New(type_ string) *Item {
 	o := new(Item)
 	o.Name = type_
 	o._init()
-	o.Add("name", type_)
+	//o.Add("name", type_)
 	return o
 }
 
@@ -440,30 +759,30 @@ func (o *Item) New(type_ string) *Item {
 	oo.Name = type_
 	oo._init()
 	oo.ID = o.ID + oo.ID
-	oo.Add("name", type_)
+	//oo.Add("name", type_)
 	return oo
 }
 
 // (*Items) Add(*Item) *Item
 // add elements of data to Pack
-func (o *Items) Add(item *Item) *Items {
-	flag_ := true
-	for _, v := range o.Items {
-		if v.Name == item.Name {
-			tmp1, _ := json.Marshal(item.Values)
-			tmp2, _ := json.Marshal(v.Values)
-			if string(tmp1) == string(tmp2) {
-				flag_ = false
-			}
-		}
-	}
-	if flag_ {
-		item.Parent = o
-		o.Items = append(o.Items, item)
-	}
+// func (o *Items) Add(item *Item) *Items {
+// 	flag_ := true
+// 	for _, v := range o.Items {
+// 		if v.Name == item.Name {
+// 			tmp1, _ := json.Marshal(item.Values)
+// 			tmp2, _ := json.Marshal(v.Values)
+// 			if string(tmp1) == string(tmp2) {
+// 				flag_ = false
+// 			}
+// 		}
+// 	}
+// 	if flag_ {
+// 		item.Parent = o
+// 		o.Items = append(o.Items, item)
+// 	}
 
-	return o
-}
+// 	return o
+// }
 
 // (*Items) Filter(string) *Items
 // filtering information as original kind // edited
