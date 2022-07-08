@@ -1,3 +1,5 @@
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![godoc](https://godoc.org/github.com/KusoKaihatsuSha/easy_settings?status.svg)](https://godoc.org/github.com/KusoKaihatsuSha/easy_settings) [![Go Report Card](https://goreportcard.com/badge/github.com/KusoKaihatsuSha/easy_settings)](https://goreportcard.com/report/github.com/KusoKaihatsuSha/easy_settings)
+
 # Source package for easy saving settings
 Package for savings JSON settings to single-alone database (type Bolt) with use minimal counts of lines code.
 
